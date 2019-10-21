@@ -56,13 +56,20 @@ class UMAPClassifier(object):
 		self.ny= 0
 		self.nchannels= 1	
 		self.data= None
+		self.data_preclassified= None
+		self.data_preclassified_labels= None
 		self.data_labels= {}
 		self.source_names= []
 		
 		# - Reducer & parameters
 		self.reducer= None
+		self.use_preclassified_data= True
+		self.preclassified_data_minsize= 20
 		self.encoded_data_dim= 2
-		self.encoded_data= None
+		self.encoded_data_unsupervised= None
+		self.encoded_data_preclassified= None
+		self.encoded_data_supervised= None
+		self.learned_transf= None
 		self.metric= 'euclidean' # {'manhattan','chebyshev','minkowski','mahalanobis','seuclidean',...}
 		self.metric_args= {}
 		self.target_metric= 'categorical'
@@ -101,14 +108,24 @@ class UMAPClassifier(object):
 		
 
 		# - Output data
-		self.outfile_encoded_data= 'encoded_data.dat'
+		self.outfile_encoded_data_unsupervised= 'encoded_data_unsupervised.dat'
+		self.outfile_encoded_data_supervised= 'encoded_data_supervised.dat'
+		self.outfile_encoded_data_preclassified= 'encoded_data_preclassified.dat'
 
 	#####################################
 	##     SETTERS/GETTERS
 	#####################################
-	def set_encoded_data_outfile(self,outfile):
-		""" Set name of encoded output file """
-		self.outfile_encoded_data= outfile	
+	def set_encoded_data_unsupervised_outfile(self,outfile):
+		""" Set name of encoded data output unsupervised file """
+		self.outfile_encoded_data_unsupervised= outfile	
+
+	def set_encoded_data_supervised_outfile(self,outfile):
+		""" Set name of encoded data output supervised file """
+		self.outfile_encoded_data_supervised= outfile	
+
+	def set_encoded_data_preclassified_outfile(self,outfile):
+		""" Set name of encoded preclassified data output file """
+		self.outfile_encoded_data_preclassified= outfile	
 
 	def set_encoded_data_dim(self,dim):
 		""" Set encoded data dim """
@@ -143,8 +160,35 @@ class UMAPClassifier(object):
 		# - Flatten input data to 2D (Nsamples x (nx*ny*nchan))
 		self.data= self.data.reshape(self.nsamples,-1)
 
-		logger.info("Train data size (N,nx,ny,nchan)=(%d,%d,%d,%d)" % (self.nsamples,self.nx,self.ny,self.nchannels))
-		logger.info("Flattened data size=",self.data.shape)
+		# - Set preclassified data
+		logger.info("DEBUG: source_names size=%d, nsamples=%d" % (len(self.source_names),self.nsamples))
+		if len(self.source_names) == self.nsamples:
+			row_list= []
+			label_list= []
+			for i in range(0,self.nsamples):
+
+				source_name= self.source_names[i]
+				has_labels= source_name in self.data_labels	
+				if not has_labels:
+					continue
+
+				obj_info= self.data_labels[source_name]
+				obj_id= obj_info['id']
+				obj_subid= obj_info['subid']
+
+				if obj_id!=0 and obj_id!=-1:
+					row_list.append(i)
+					label_list.append(obj_id)					
+
+			if row_list:	
+				self.data_preclassified= self.data[row_list,:]
+				self.data_preclassified_labels= np.array(label_list)
+
+		logger.info("Input data size (N,nx,ny,nchan)=(%d,%d,%d,%d)" % (self.nsamples,self.nx,self.ny,self.nchannels))
+		print("DEBUG: Reshaped data size=",self.data.shape)
+		if self.data_preclassified is not None:
+			print("DEBUG: Pre-classified data size=",self.data_preclassified.shape)
+			print("DEBUG: Pre-classified data labels size=",self.data_preclassified_labels.shape)
 
 		return 0
 
@@ -182,19 +226,35 @@ class UMAPClassifier(object):
 			verbose=False
 		)
 
+		#==========================================================
+		#==   FIT PRE-CLASSIFIED DATA (IF AVAILABLE) SUPERVISED
+		#==========================================================
+		if self.use_preclassified_data and len(self.data_preclassified)>=self.preclassified_data_minsize:
+			logger.info("Fitting input pre-classified data in a supervised way ...")
+			self.learned_transf= self.reducer.fit(self.data_preclassified,self.data_preclassified_labels)
+			self.encoded_data_preclassified= self.learned_transf.transform(self.data_preclassified)
+
 		#================================
-		#==   FIT DATA
+		#==   FIT DATA UNSUPERVISED
 		#================================
-		logger.info("Fitting input data ...")
-		self.encoded_data= self.reducer.fit_transform(self.data)
+		logger.info("Fitting input data in a completely unsupervised way ...")
+		self.encoded_data_unsupervised= self.reducer.fit_transform(self.data)
 		
+		#====================================================
+		#==   ENCODE DATA USING LEARNED TRANSFORM (IF DONE)
+		#====================================================
+		if self.learned_transf is not None:
+			logger.info("Encode input data using learned transform on pre-classified data ...")
+			self.encoded_data_supervised= self.learned_transf.transform(self.data)
+
 		#================================
 		#==   SAVE ENCODED DATA
 		#================================
+		# - Unsupervised encoded data
 		logger.info("Saving encoded data to file ...")
-		N= self.encoded_data.shape[0]
-		print("Encoded data shape=",self.encoded_data)
-		print("encoded_data N=",N)
+		N= self.encoded_data_unsupervised.shape[0]
+		print("Encoded data shape=",self.encoded_data_unsupervised)
+		print("Encoded data N=",N)
 
 		obj_ids= []
 		obj_subids= []
@@ -225,14 +285,88 @@ class UMAPClassifier(object):
 		#print("self.encoded_data size=",self.encoded_data.shape)
 
 		enc_data= np.concatenate(
-			(snames,self.encoded_data,objids,objsubids),
+			(snames,self.encoded_data_unsupervised,objids,objsubids),
 			axis=1
 		)
 
 		head= '#sname z1 z2 id subid'
-		Utils.write_ascii(enc_data,self.outfile_encoded_data,head)	
+		Utils.write_ascii(enc_data,self.outfile_encoded_data_unsupervised,head)	
 
+		# - Supervised encoded data
+		if self.encoded_data_supervised is not None:
+			logger.info("Saving supervised encoded data to file ...")
+			N= self.encoded_data_supervised.shape[0]
+			print("Encoded data shape=",self.encoded_data_supervised)
+			print("Encoded data N=",N)
 
+			obj_ids= []
+			obj_subids= []
+
+			for i in range(N):
+				source_name= self.source_names[i]
+				has_labels= source_name in self.data_labels	
+				obj_id= 0
+				obj_subid= 0
+
+				if has_labels:
+					obj_info= self.data_labels[source_name]
+					obj_id= obj_info['id']
+					obj_subid= obj_info['subid']
+				
+				obj_ids.append(obj_id)
+				obj_subids.append(obj_subid)
+
+			
+			snames= np.array(self.source_names).reshape(N,1)
+			objids= np.array(obj_ids).reshape(N,1)
+			objsubids= np.array(obj_subids).reshape(N,1)
+			
+			enc_data= np.concatenate(
+				(snames,self.encoded_data_supervised,objids,objsubids),
+				axis=1
+			)
+
+			head= '#sname z1 z2 id subid'
+			Utils.write_ascii(enc_data,self.outfile_encoded_data_supervised,head)	
+
+		# - Pre-classified data
+		if self.encoded_data_preclassified is not None:
+			logger.info("Saving pre-classified encoded data to file ...")
+			N= self.encoded_data_preclassified.shape[0]
+			print("Encoded data shape=",self.encoded_data_preclassified)
+			print("Encoded data N=",N)
+
+			obj_ids= []
+			obj_subids= []
+			sname_list= []
+
+			for i in range(N):
+				source_name= self.source_names[i]
+				has_labels= source_name in self.data_labels	
+				obj_id= 0
+				obj_subid= 0
+
+				if has_labels:
+					obj_info= self.data_labels[source_name]
+					obj_id= obj_info['id']
+					obj_subid= obj_info['subid']
+				
+				obj_ids.append(obj_id)
+				obj_subids.append(obj_subid)
+				sname_list.append(source_name)
+
+			
+			snames= np.array(sname_list).reshape(N,1)
+			objids= np.array(obj_ids).reshape(N,1)
+			objsubids= np.array(obj_subids).reshape(N,1)
+			
+			enc_data= np.concatenate(
+				(snames,self.encoded_data_preclassified,objids,objsubids),
+				axis=1
+			)
+
+			head= '#sname z1 z2 id subid'
+			Utils.write_ascii(enc_data,self.outfile_encoded_data_preclassified,head)	
 
 	#####################################
 	##     RUN CLASSIFIER

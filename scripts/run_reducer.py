@@ -75,8 +75,9 @@ def get_args():
 	
 	
 	# - Output options
-	parser.add_argument('-outfile', '--outfile', dest='outfile', required=False, type=str, default='encoded_data.dat', action='store',help='Name of encoded data output file (default=encoded_data.dat)')
-	
+	parser.add_argument('-outfile_unsupervised', '--outfile_unsupervised', dest='outfile_unsupervised', required=False, type=str, default='encoded_data_unsupervised.dat', action='store',help='Name of encoded data output file (default=encoded_data_unsupervised.dat)')
+	parser.add_argument('-outfile_supervised', '--outfile_supervised', dest='outfile_supervised', required=False, type=str, default='encoded_data_supervised.dat', action='store',help='Name of output file with encoded data produced using supervised method (default=encoded_data_supervised.dat)')
+	parser.add_argument('-outfile_preclassified', '--outfile_preclassified', dest='outfile_preclassified', required=False, type=str, default='encoded_data_preclassified.dat', action='store',help='Name of output file with encoded data produced from pre-classified data (default=encoded_data_preclassified.dat)')
 
 	args = parser.parse_args()	
 
@@ -122,8 +123,11 @@ def main():
 	ndim= args.ndim
 	
 	# - Output file
-	outfile= args.outfile
-	
+	outfile_unsupervised= args.outfile_unsupervised
+	outfile_supervised= args.outfile_supervised
+	outfile_preclassified= args.outfile_preclassified
+		
+
 	#===========================
 	#==   CHECK ARGS
 	#===========================
@@ -163,7 +167,9 @@ def main():
 	logger.info("Running UMAP classifier reducer ...")
 	classifier= UMAPClassifier(dp)
 
-	classifier.set_encoded_data_outfile(outfile)
+	classifier.set_encoded_data_unsupervised_outfile(outfile_unsupervised)
+	classifier.set_encoded_data_supervised_outfile(outfile_supervised)
+	classifier.set_encoded_data_preclassified_outfile(outfile_preclassified)
 	classifier.set_encoded_data_dim(ndim)
 	
 	status= classifier.train()
