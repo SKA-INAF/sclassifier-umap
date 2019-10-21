@@ -112,7 +112,7 @@ class UMAPClassifier(object):
 
 	def set_encoded_data_dim(self,dim):
 		""" Set encoded data dim """
-		self.self.encoded_data_dim= dim
+		self.encoded_data_dim= dim
 
 	
 
