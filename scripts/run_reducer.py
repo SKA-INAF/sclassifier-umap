@@ -166,7 +166,7 @@ def main():
 	classifier.set_encoded_data_outfile(outfile)
 	classifier.set_encoded_data_dim(ndim)
 	
-	status= umap_classifier.train()
+	status= classifier.train()
 	if status<0:
 		logger.error("UMAP training failed!")
 		return 1
