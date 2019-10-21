@@ -201,12 +201,12 @@ class UMAPClassifier(object):
 
 		for i in range(N):
 			source_name= self.source_names[i]
-			has_labels= source_name in self.input_labels		
+			has_labels= source_name in self.data_labels	
 			obj_id= 0
 			obj_subid= 0
 
 			if has_labels:
-				obj_info= self.input_labels[source_name]
+				obj_info= self.data_labels[source_name]
 				obj_id= obj_info['id']
 				obj_subid= obj_info['subid']
 				
