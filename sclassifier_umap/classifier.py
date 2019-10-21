@@ -60,6 +60,7 @@ class UMAPClassifier(object):
 		self.data_preclassified_labels= None
 		self.data_labels= {}
 		self.source_names= []
+		self.source_names_preclassified= []
 		
 		# - Reducer & parameters
 		self.reducer= None
@@ -178,7 +179,8 @@ class UMAPClassifier(object):
 
 				if obj_id!=0 and obj_id!=-1:
 					row_list.append(i)
-					label_list.append(obj_id)					
+					label_list.append(obj_id)	
+					self.source_names_preclassified.append(source_name)				
 
 			if row_list:	
 				self.data_preclassified= self.data[row_list,:]
@@ -340,8 +342,8 @@ class UMAPClassifier(object):
 			obj_subids= []
 			sname_list= []
 
-			for i in range(N):
-				source_name= self.source_names[i]
+			for i in range(len(self.source_names_preclassified)):
+				source_name= self.source_names_preclassified[i]
 				has_labels= source_name in self.data_labels	
 				obj_id= 0
 				obj_subid= 0
@@ -367,6 +369,9 @@ class UMAPClassifier(object):
 
 			head= '#sname z1 z2 id subid'
 			Utils.write_ascii(enc_data,self.outfile_encoded_data_preclassified,head)	
+
+		return 0
+
 
 	#####################################
 	##     RUN CLASSIFIER
