@@ -28,7 +28,7 @@ import collections
 from sclassifier_umap import __version__, __date__
 from sclassifier_umap import logger
 from sclassifier_umap.data_provider import DataProvider
-
+from sclassifier_umap.feature_extractor import FeatureExtractor
 
 #### GET SCRIPT ARGS ####
 def str2bool(v):
@@ -70,6 +70,15 @@ def get_args():
 	parser.set_defaults(apply_weights=False)	
 	parser.add_argument('-img_weights','--img_weights', dest='img_weights', required=False, nargs='+', type=float, default=[], help='List of image weights (must have same size of input filelists)') 
 
+	# - Feature extractor options
+	parser.add_argument('-seedThr', '--seedThr', dest='seedThr', required=False, type=float, default=5, action='store',help='Seed significance threshold used to create source mask (default=5)')	
+	parser.add_argument('-mergeThr', '--mergeThr', dest='mergeThr', required=False, type=float, default=2.5, action='store',help='Merge significance threshold used to create source mask (default=2.5)')	
+	parser.add_argument('-sourceMaxDistFromCenter', '--sourceMaxDistFromCenter', dest='sourceMaxDistFromCenter', required=False, type=float, default=5, action='store',help='Maximum distance in pixels of detected soure from center to be considered in the mask (default=5)')	
+	parser.add_argument('-outerLayerSize', '--outerLayerSize', dest='outerLayerSize', required=False, type=float, default=21, action='store',help='Outer layer size in pixels used to create the outer mask (default=21)')	
+	
+
+	# - Output options
+	# ...
 
 	args = parser.parse_args()	
 
@@ -83,6 +92,7 @@ def get_args():
 def main():
 	"""Main function"""
 
+	
 	#===========================
 	#==   PARSE ARGS
 	#===========================
@@ -102,15 +112,22 @@ def main():
 	crop_img= args.crop_img
 	nx= args.nx
 	ny= args.ny
-
 	normalize_img= args.normalize_img
 	normdatamin= args.normdatamin
 	normdatamax= args.normdatamax
-	normalize_img_to_chanmax= args.normalize_img_to_chanmax
 	normalize_img_to_first_chan= args.normalize_img_to_first_chan
-	
+	normalize_img_to_chanmax= args.normalize_img_to_chanmax
 	apply_weights= args.apply_weights
 	img_weights= args.img_weights
+
+	# - Feature extractor options
+	seedThr= args.seedThr
+	mergeThr= args.mergeThr
+	sourceMaxDistFromCenter= args.sourceMaxDistFromCenter
+	outerLayerSize= args.outerLayerSize
+
+	# - Output file
+	# ...	
 
 	#===========================
 	#==   CHECK ARGS
@@ -118,7 +135,7 @@ def main():
 	if apply_weights and len(img_weights)!=len(filelists):
 		logger.error("Input image weights has size different from input filelists!")
 		return 1
-	
+
 	#===========================
 	#==   READ DATA
 	#===========================
@@ -136,33 +153,40 @@ def main():
 	dp.enable_img_weights(apply_weights)
 	dp.set_img_weights(img_weights)
 
-
 	# - Read data	
 	logger.info("Running data provider to read image data ...")
 	status= dp.read_data()
 	if status<0:
 		logger.error("Failed to read input image data!")
 		return 1
-	
-	# - Compute image similarity data
-	logger.info("Compute image similarity data ...")
-	status= dp.compute_similarity_data()
+
+	#===========================
+	#==   EXTRACT FEATURES
+	#===========================
+	fextractor= FeatureExtractor(dp)
+	fextractor.set_seed_thr(seedThr)
+	fextractor.set_merge_thr(mergeThr)
+	fextractor.set_max_source_dist_from_center(sourceMaxDistFromCenter)
+	fextractor.set_outer_layer_size(outerLayerSize)
+
+	logger.info("Computing similarity data ...")
+	status= fextractor.compute_similarity_data()
 	if status<0:
-		logger.error("Failed to compute image similarity data!")
+		logger.error("Failed to compute similarity images!")
 		return 1
 
-	# - Draw data (first image)
-	#logger.info("Drawing the first image as test...")
-	#dp.save_data(0,save_to_file=False,outfile='source_plot.png')
+	logger.info("Computing source masks ...")
+	status= fextractor.compute_source_masks()
+	if status<0:
+		logger.error("Failed to compute source masks!")
+		return 1
 
-	# - Draw ssim data (first image)
-	logger.info("Drawing the first image ssim as test...")
-	dp.save_ssim_data(save_to_file=False)
-	
-	# - Draw ssim grad data (first image)
-	#logger.info("Drawing the first image ssimgrad as test...")
-	#dp.save_ssimgrad_data(0,save_to_file=False,outfile='source_ssimgrad_plot.png')
-	
+	logger.info("Running feature extractor ...")
+	status= fextractor.extract_features()
+	if status<0:
+		logger.error("Failed to extract features!")
+		return 1
+
 
 	return 0
 
