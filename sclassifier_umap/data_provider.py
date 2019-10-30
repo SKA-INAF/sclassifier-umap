@@ -25,8 +25,12 @@ from astropy.io import ascii
 ## ADDON ML MODULES
 from sklearn.model_selection import train_test_split
 
+
 ## PACKAGE MODULES
 from .utils import Utils
+
+## MATPLOTLIB
+import matplotlib.pyplot as plt
 
 ##############################
 ##     GLOBAL VARS
@@ -73,6 +77,11 @@ class DataProvider(object):
 		self.normmax= 10
 		self.nBadPixThr= 0.6
 		self.badPixReplaceVal= 0 #-999
+
+		# - SSIM images
+		self.input_data_ssim= None
+		self.input_data_ssimgrad= None
+
 		
 
 	#################################
@@ -166,7 +175,7 @@ class DataProvider(object):
 	##     READ INPUT IMAGES
 	#############################
 	def __read_source_image_data(self):	
-		""" Read data from disk recursively """
+		""" Read data from disk """
 			
 		# - Check data filelists
 		if not self.filelists:
@@ -204,7 +213,7 @@ class DataProvider(object):
 					return -1
 
 			
-			# - Read image files in list	
+			# - Read image files in list
 			for item in filenames:
 				
 				filename= item[0]
@@ -412,5 +421,220 @@ class DataProvider(object):
 		print('Source catalog dict')			
 		print(self.input_data_labels)
 
+		return 0
+
+	#################################
+	##     COMPUTE SSIM IMAGES
+	#################################
+	def compute_similarity_data(self):
+		""" Compute similarity between maps """
+
+		# - Check if data entry exists
+		if self.input_data is None:
+			logger.error("No input data present (hint: read data first!")
+			return -1
+
+		# - Loop over images
+		imgshape= self.input_data.shape
+		nsamples= imgshape[0]
+		nchannels= imgshape[3] 
+		simg_list= []
+		sgradimg_list= []
+
+		for i in range(nsamples):
+			img_stack= []
+			gradimg_stack= []
+			for j in range(0,nchannels):
+				for k in range(j+1,nchannels):
+					(mssim, grad_img, sim_img)= Utils.compute_img_similarity(self.input_data[i,:,:,j],self.input_data[i,:,:,k])
+					img_stack.append(sim_img)
+					gradimg_stack.append(grad_img)
+			simg_cube= np.dstack(img_stack)
+			sgradimg_cube= np.dstack(gradimg_stack)
+			simg_list.append(simg_cube)
+			sgradimg_list.append(sgradimg_cube)
+
+		self.input_data_ssim= np.array(simg_list)
+		self.input_data_ssim= self.input_data_ssim.astype('float32')
+		self.input_data_ssimgrad= np.array(sgradimg_list)
+		self.input_data_ssimgrad= self.input_data_ssimgrad.astype('float32')
+
+		logger.info("Shape of input ssim data")
+		print(np.shape(self.input_data_ssim))
 
 		return 0
+
+	#################################
+	##     SAVE IMAGE DATA
+	#################################
+	def save_data(self,data_index,save_to_file=False,outfile='source_plot.png'):
+		""" Save input data read to images """
+		
+		# - Check if data entry exists
+		if self.input_data is None:
+			logger.error("No input data present (hint: read data first!")
+			return -1
+
+		imgshape= self.input_data.shape
+		nsamples= imgshape[0]
+		nchannels= imgshape[3] 
+
+		if data_index>=nsamples:
+			logger.error("No input data present with index %d " % data_index)
+			return -1
+	
+		# - Find maximum & minimum data value
+		data_min= np.min(self.input_data[data_index])
+		data_max= np.max(self.input_data[data_index])
+
+		
+		# - Initialize plot		
+		#plt.style.use("ggplot")
+		
+		fig = plt.figure(figsize=(20,20))
+		#(fig, ax) = plt.subplots(nchannels,1,figsize=(20,20))
+
+		for i in range(nchannels):
+			logger.info("Plot the source image #%d (chan=%d) ..." % (data_index,i+1))
+		
+			title= 'Source ' + self.source_names[data_index] + ' - CHAN ' + str(i+1) 
+			
+			a = fig.add_subplot(1,nchannels,i+1)
+			imgplot = plt.imshow(self.input_data[data_index,:,:,i],vmin=data_min,vmax=data_max)
+			a.set_title(title)
+			plt.colorbar(orientation='horizontal')
+
+			#(fig, ax) = plt.subplots(nchannels,1,figsize=(20,20))
+			#ax[0].set_title(title)
+			#ax[0].set_xlabel("x")
+			#ax[0].set_ylabel("y")
+			#imgplot = plt.imshow(self.input_data[data_index,:,:,i])
+			#plt.colorbar()
+
+		plt.tight_layout()
+
+		if save_to_file:
+			plt.savefig(outfile)
+			plt.close()
+		else:	
+			plt.show()
+		
+
+		return 0
+
+	######################################
+	##     SAVE IMAGE SIMILARITY DATA
+	######################################
+	def save_ssim_data(self,save_to_file=False):
+		""" Save all similarity images to file """
+		
+		# - Check if data entry exists
+		if self.input_data_ssim is None:
+			logger.error("No input data present (hint: read data first!")
+			return -1
+
+		imgshape= self.input_data_ssim.shape
+		nsamples= imgshape[0]
+		nchannels= imgshape[3] 
+
+		# - Loop over image data and draw/save
+		for i in range(nsamples):
+			logger.info("Saving similarity map no. %d ..." % (i+1))
+			outfile= 'ssim_' + self.source_names[i] + '.png'
+			self.__save_ssim_img(i,save_to_file,outfile)
+
+		return 0
+		
+
+	def __save_ssim_img(self,data_index,save_to_file=False,outfile='ssim_plot.png'):
+		""" Save similarity images to file """
+
+		# - Check if data entry exists
+		if self.input_data_ssim is None:
+			logger.error("No input data present (hint: read data first!")
+			return -1
+
+		imgshape= self.input_data_ssim.shape
+		nsamples= imgshape[0]
+		nchannels= imgshape[3] 
+
+		if data_index>=nsamples:
+			logger.error("No input data present with index %d " % data_index)
+			return -1
+	
+		# - Find maximum & minimum data value
+		data_min= np.min(self.input_data_ssim[data_index])
+		data_max= np.max(self.input_data_ssim[data_index])
+		
+		# - Initialize plot		
+		fig = plt.figure(figsize=(20,20))
+		
+		for i in range(nchannels):
+			logger.info("Plot the source ssim image #%d (chan=%d) ..." % (data_index,i+1))
+		
+			title= 'Source SSIM ' + self.source_names[data_index] + ' - CHAN ' + str(i+1) 
+			
+			a = fig.add_subplot(1,nchannels,i+1)
+			imgplot = plt.imshow(self.input_data_ssim[data_index,:,:,i],vmin=data_min,vmax=data_max)
+			a.set_title(title)
+			plt.colorbar(orientation='horizontal')
+
+		plt.tight_layout()
+
+		if save_to_file:
+			plt.savefig(outfile)
+			plt.close()
+		else:	
+			plt.show()
+
+
+		return 0
+
+
+	################################################
+	##     SAVE IMAGE SIMILARITY GRADIENT DATA
+	################################################
+	def save_ssimgrad_data(self,data_index,save_to_file=False,outfile='ssim_plot.png'):
+		""" Save input data read to images """
+
+		# - Check if data entry exists
+		if self.input_data is None:
+			logger.error("No input data present (hint: read data first!")
+			return -1
+
+		imgshape= self.input_data_ssimgrad.shape
+		nsamples= imgshape[0]
+		nchannels= imgshape[3] 
+
+		if data_index>=nsamples:
+			logger.error("No input data present with index %d " % data_index)
+			return -1
+	
+		# - Find maximum & minimum data value
+		data_min= np.min(self.input_data_ssimgrad[data_index])
+		data_max= np.max(self.input_data_ssimgrad[data_index])
+		
+		# - Initialize plot		
+		fig = plt.figure(figsize=(20,20))
+		
+		for i in range(nchannels):
+			logger.info("Plot the source ssim gradient image #%d (chan=%d) ..." % (data_index,i+1))
+		
+			title= 'Source SSIM GRAD ' + self.source_names[data_index] + ' - CHAN ' + str(i+1) 
+			
+			a = fig.add_subplot(1,nchannels,i+1)
+			imgplot = plt.imshow(self.input_data_ssimgrad[data_index,:,:,i],vmin=data_min,vmax=data_max)
+			a.set_title(title)
+			plt.colorbar(orientation='horizontal')
+
+		plt.tight_layout()
+
+		if save_to_file:
+			plt.savefig(outfile)
+			plt.close()
+		else:	
+			plt.show()
+
+
+		return 0
+

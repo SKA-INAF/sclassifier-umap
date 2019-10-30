@@ -36,7 +36,7 @@ if PY_MAJOR_VERSION<=2:
 	print("PYTHON 2 detected")
 	reqs.append('future')
 	reqs.append('scipy<=1.2.1')
-	reqs.append('scikit-learn<=0.20')
+	reqs.append('scikit-learn>=0.20')
 	reqs.append('pyparsing>=2.0.1')
 	reqs.append('matplotlib<=2.2.4')
 else:
@@ -63,6 +63,6 @@ setup(
 	long_description=read('README.md'),
 	packages=['sclassifier_umap'],
 	install_requires=reqs,
-	scripts=['scripts/read_imgdata.py','scripts/run_reducer.py'],
+	scripts=['scripts/read_imgdata.py','scripts/run_reducer.py','scripts/extract_features.py'],
 	
 )
