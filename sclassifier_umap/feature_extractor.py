@@ -37,6 +37,7 @@ try:
 	## CAESAR
 	gSystem.Load('libCaesar')
 	from ROOT import Caesar
+
 except:
 	print("WARN: Cannot load ROOT & Caesar modules (not a problem if you are not going to use them)...")
 
@@ -101,6 +102,7 @@ class FeatureExtractor(object):
 		self.mask_computed= False
 
 		# - SSIM images
+		self.ssim_window_size= 9
 		self.input_data_ssim= None
 		self.input_data_ssimgrad= None
 
@@ -109,10 +111,17 @@ class FeatureExtractor(object):
 		self.Sratio_outer_data= None
 		self.SSIM_inner_data= None
 		self.SSIM_outer_data= None
+	
+		# - Output file
+		self.outfile= 'features.dat'
 		
 	#################################
 	##     SETTERS
 	#################################
+	def set_ssim_window_size(self,w):
+		""" Set window size for ssim index computation"""
+		self.ssim_window_size= w
+
 	def set_seed_thr(self,thr):
 		""" Set seed threshold for source extraction """
 		self.seedThr= thr
@@ -321,6 +330,12 @@ class FeatureExtractor(object):
 			logger.error('Failed to compute average similarity features ...')
 			return -1
 
+		#===============================
+		#==   SAVE DATA
+		#===============================
+		logger.info('Saving features to file %s ...' % self.outfile)
+		self.__save_feature_data(self.outfile)
+
 		return 0
 
 		
@@ -349,7 +364,8 @@ class FeatureExtractor(object):
 
 			# - Compute inner/outer source mask images
 			logger.info("Computing inner/output mask for source %s ..." % (self.source_names[i]))
-			res= Utils.compute_source_inner_outer_masks(
+			#res= Utils.compute_source_inner_outer_masks(
+			res= self.__compute_source_inner_outer_masks(
 				imgdata,
 				self.seedThr,self.mergeThr,self.minNPix,
 				self.outerLayerSize,
@@ -404,10 +420,25 @@ class FeatureExtractor(object):
 			img_stack= []
 			gradimg_stack= []
 			for j in range(0,nchannels):
+
+				# Normalize image to max 
+				imgdata_j= self.input_data[i,:,:,j]
+				max_j= np.max(imgdata_j)
+				imgdata_j= np.divide(imgdata_j,max_j)
+
 				for k in range(j+1,nchannels):
-					(mssim, grad_img, sim_img)= Utils.compute_img_similarity(self.input_data[i,:,:,j],self.input_data[i,:,:,k])
+					# Normalize image to max 
+					imgdata_k= self.input_data[i,:,:,k]
+					max_k= np.max(imgdata_k)
+					imgdata_k= np.divide(imgdata_k,max_k)
+
+					# Compute similarity index
+					#(mssim, grad_img, sim_img)= Utils.compute_img_similarity(imgdata_j,imgdata_k,self.ssim_window_size)
+					(mssim, grad_img, sim_img)= self.__compute_img_similarity(imgdata_j,imgdata_k,self.ssim_window_size)
+					
 					img_stack.append(sim_img)
 					gradimg_stack.append(grad_img)
+
 			simg_cube= np.dstack(img_stack)
 			sgradimg_cube= np.dstack(gradimg_stack)
 			simg_list.append(simg_cube)
@@ -424,5 +455,295 @@ class FeatureExtractor(object):
 		return 0
 
 
+	#################################
+	##     SAVE FEATURE DATA
+	#################################
+	def __save_feature_data(self,outfile):
+		""" Save feature data to file """
+
+		logger.info("Saving feature data to file ...")
+		N= self.Sratio_inner_data.shape[0]
+		print("Sratio shape=",self.Sratio_inner_data.shape)
+		print("Data N=",N)
+		print("SSIIM shape=",self.SSIM_inner_data.shape)
+
+		obj_ids= []
+		obj_subids= []
+		obj_confirmeds= []
+
+		for i in range(N):
+			source_name= self.source_names[i]
+			has_labels= source_name in self.data_labels	
+			obj_id= 0
+			obj_subid= 0
+			obj_confirmed= 0
+
+			if has_labels:
+				obj_info= self.data_labels[source_name]
+				obj_id= obj_info['id']
+				obj_subid= obj_info['subid']
+				obj_confirmed= obj_info['confirmed']
+				
+			obj_ids.append(obj_id)
+			obj_subids.append(obj_subid)	
+			obj_confirmeds.append(obj_confirmed)
+
+			#print('Source name=%s, has_labels=%d, id=%d, subid=%s' % (source_name,has_labels,obj_id,obj_subid))
+
+		# - Merge encoded data
+		snames= np.array(self.source_names).reshape(N,1)
+		objids= np.array(obj_ids).reshape(N,1)
+		objsubids= np.array(obj_subids).reshape(N,1)
+		objconfirmeds= np.array(obj_confirmeds).reshape(N,1)
+		sratio_inner= self.Sratio_inner_data.reshape(self.Sratio_inner_data.shape[0],self.Sratio_inner_data.shape[3])	
+		sratio_outer= self.Sratio_outer_data.reshape(self.Sratio_outer_data.shape[0],self.Sratio_outer_data.shape[3])	
+		ssim_inner= self.SSIM_inner_data.reshape(self.SSIM_inner_data.shape[0],self.SSIM_inner_data.shape[3])	
+		ssim_outer= self.SSIM_outer_data.reshape(self.SSIM_outer_data.shape[0],self.SSIM_outer_data.shape[3])	
+	
+		out_data= np.concatenate(
+			(snames,sratio_inner,sratio_outer,ssim_inner,ssim_outer,objids,objsubids,objconfirmeds),
+			axis=1
+		)
+
+		#head= '# sname Sratio_inner Sratio_outer SSIM_inner SSIM_outer id subid confirmed'
+		head= '# ' 
+		head+= 'sname '	
+		for k in range(sratio_inner.shape[1]):
+			head+= 'Sratio_inner_' + str(k) + ' '
+		for k in range(sratio_outer.shape[1]):
+			head+= 'Sratio_outer_' + str(k) + ' '
+		for k in range(ssim_inner.shape[1]):
+			head+= 'SSIM_inner_' + str(k) + ' '
+		for k in range(ssim_outer.shape[1]):
+			head+= 'SSIM_outer_' + str(k) + ' '
+		head+= 'id '
+		head+= 'subid '
+		head+= 'confirmed'
+		
+		Utils.write_ascii(out_data,outfile,head)	
+
+	#################################
+	##     COMPUTE FEATURE IMAGE
+	#################################
+	def __compute_caesar_img(self,data,compute_stats=False):
+		""" Return a Caesar image from 2D numpy array data """
+
+		# - Check input data
+		if data is None:
+			logger.error("Null data given!")
+			return None
+		imgsize= data.shape
+		nx= imgsize[1]
+		ny= imgsize[0]
+		if nx<=0 or ny<=0:
+			logger.error("Invalid image size detected in numpy data given!")	
+			return None
+
+		# - Create and fill image
+		img= Caesar.Image(nx,ny)
+
+		for ix in range(nx):
+			for iy in range(ny):
+				w= data[iy,ix]
+				img.FillPixel(ix,iy,w)		
+
+		# - Compute stats
+		if compute_stats:
+			robustStats=True
+			img.ComputeStats(robustStats)
+
+		return img
+
+	#################################
+	##     GET SIGNIFICANCE MAP
+	#################################
+	def __get_significance_map(self,imgdata,bkgEstimator=Caesar.eMedianBkg):
+		""" Compute significance map """
+
+		# - Convert numpy input data to Caesar image
+		computeStats= True
+		img= self.__compute_caesar_img(imgdata,computeStats)
+		if img is None:
+			logger.error("Failed to convert input data to Caesar image!")
+			return ()
+		
+		# - Compute global background
+		localBkg= False
+		bkgData= img.ComputeBkg(bkgEstimator,localBkg)
+		if bkgData is None:
+			logger.error("Failed to compute image background!")
+			return ()
+
+		# - Compute significance map
+		zmap= img.GetSignificanceMap(bkgData,localBkg)
+		if zmap is None:
+			logger.error("Failed to compute image significance map!")
+			return ()
+
+		return (img,zmap)
 
 
+	#################################
+	##     FIND SOURCES
+	#################################
+	def __find_sources(self,imgdata,seedThr=5,mergeThr=2.5,minPixels=5,applyDistThr=False,maxDist=10):
+		""" Extract sources from image """
+
+		# - Convert numpy input data to Caesar image
+		computeStats= True
+		img= self.__compute_caesar_img(imgdata,computeStats)
+		if img is None:
+			logger.error("Failed to convert input data to Caesar image!")
+			return ()
+		
+		# - Compute global background
+		localBkg= False
+		bkgEstimator= Caesar.eMedianBkg
+		bkgData= img.ComputeBkg(bkgEstimator,localBkg)
+		if bkgData is None:
+			logger.error("Failed to compute image background!")
+			return ()
+
+		# - Compute significance map
+		zmap= img.GetSignificanceMap(bkgData,localBkg)
+		if zmap is None:
+			logger.error("Failed to compute image significance map!")
+			return ()
+
+		# - Extract sources
+		findNested= False
+		sources= ROOT.std.vector("Caesar::Source*")()
+		status= img.FindCompactSource(sources,zmap,bkgData,seedThr,mergeThr,minPixels,findNested)
+		if status<0:
+			logger.error("Failed to extract sources!")
+			return ()
+
+		logger.info('#%d sources found in map ...' % sources.size())
+
+		# - Selecting sources by distance from center
+		nx= img.GetNx()
+		ny= img.GetNy()
+		xc= (int)(nx/2.)
+		yc= (int)(ny/2.)
+		sources_sel= ROOT.std.vector("Caesar::Source*")()
+		if applyDistThr:
+			logger.info('Selecting sources closer to image center by dist %f ...' % maxDist)
+			for i in range(sources.size()):
+				x= sources[i].X0
+				y= sources[i].Y0
+				d= np.sqrt( (x-xc)*(x-xc) + (y-yc)*(y-yc ) )
+				if d<=maxDist:
+					sources_sel.push_back(sources[i])
+				else:
+					logger.info('Skipping source found at (%f,%f) with distance d=%f from image center (%f,%f) ...' % (x,y,d,xc,yc))
+		else:
+			sources_sel= sources
+			
+		logger.info('#%d selected sources in map ...' % sources_sel.size())
+
+		return (img, zmap, sources_sel)
+
+	#################################
+	##     FIND SOURCE MASK
+	#################################
+	def __compute_source_mask(self,imgdata,seedThr=5,mergeThr=2.5,minPixels=5,applyDistThr=False,maxDist=10):
+		""" Extract sources from image and get a binary mask """
+
+		# - Extracting sources
+		logger.info('Extracting sources from map ...')
+		res= self.__find_sources(imgdata,seedThr,mergeThr,minPixels,applyDistThr,maxDist)	
+		if not res:
+			logger.error('Failed to extract sources from map (return tuple is empty!)')
+			return None
+
+		img= res[0]
+		zmap= res[1]
+		sources= res[2]
+		if img is None:
+			logger.error('Failed to get Caesar map from data!')
+			return None
+
+		logger.info('#%d sources found in map ...' % sources.size())
+
+		# - Return empty mask if no sources found
+		if sources.empty():
+			logger.info('Returning empty source mask ...')
+			smask= img.GetCloned("")
+			smask.Reset()
+			return smask
+
+		# - Compute source mask
+		logger.info('Computing source mask ...')
+		isBinary= True
+		invert= False
+		smask= img.GetSourceMask(sources,isBinary,invert)
+		
+		return smask
+
+	######################################
+	##     FIND SOURCE MASK INNER/OUTER
+	######################################
+	def __compute_source_inner_outer_masks(self,imgdata,seedThr=5,mergeThr=2.5,minPixels=5,outer_npix=5,applyDistThr=False,maxDist=10):
+		""" Extract sources from image and get a inner and outer binary mask """
+
+		# - Compute first source mask
+		smask= self.__compute_source_mask(imgdata,seedThr,mergeThr,minPixels,applyDistThr,maxDist)
+	
+		# - Get dilated mask
+		niters= 1
+		smask_dil= smask.GetMorphDilatedImage(outer_npix,niters,False)
+
+		# - Substract smask from smask_dil to get crown around source	
+		smask_outer= smask_dil.GetCloned("")
+		smask_outer.Add(smask,-1)
+
+		return (smask,smask_outer)
+
+	######################################
+	##     FIND SOURCE Z MASK SHELLS
+	######################################
+	def compute_source_z_masks(self,imgdata,seedThr=5,mergeThrs=[4,3,2.5,2,1.5],minPixels=5,applyDistThr=False,maxDist=10):
+		""" Extract sources from image and get a binary masks corresponding to significance ranges """
+
+		# - Compute significance map
+		logger.info('Compute significance map ...')
+		res= self.__get_significance_map(imgdata)
+		if not res:
+			logger.error('Failed to compute significance map (return tuple is empty!)')
+			return None
+
+		img= res[0]
+		zmap= res[1]
+		if zmap is None:
+			logger.error('Failed to get Caesar significance map from data!')
+			return None
+
+		# - Loop over merge thr and find masks
+		findNested= False
+		isBinary= True
+		invert= False
+		smasks= []
+		for mergeThr in mergeThrs:
+			logger.info('Finding sources using seedThr=%f, mergeThr=%f ...' % (seedThr,mergeThr))
+			sources= ROOT.std.vector("Caesar::Source*")()
+			status= img.FindCompactSource(sources,zmap,None,seedThr,mergeThr,minPixels,findNested)
+			if status<0:
+				logger.error("Failed to extract sources!")
+				return None
+
+			smask= img.GetSourceMask(sources,isBinary,invert)
+			smasks.append(smask)
+
+		# - Substract smask from previous to get z shells
+		nthrs= len(smasks)
+		smasks_shell= []
+		for i in range(nthrs):
+			if i==0:
+				smasks_shell.append(smasks[i])
+				continue
+			smask_shell= smasks[i].GetCloned("")
+			smask_shell.Add(smasks[i-1],-1)
+			smasks_shell.append(smask_shell)
+
+		return smasks_shell
+	

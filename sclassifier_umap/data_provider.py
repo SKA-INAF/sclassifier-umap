@@ -24,7 +24,7 @@ from astropy.io import ascii
 
 ## ADDON ML MODULES
 from sklearn.model_selection import train_test_split
-
+from sklearn import preprocessing
 
 ## PACKAGE MODULES
 from .utils import Utils
@@ -50,11 +50,13 @@ class DataProvider(object):
 	"""
 	
 	
-	def __init__(self,filelists=[]):
+	#def __init__(self,filelists=[]):
+	def __init__(self):
 		""" Return a DataProvider object """
 
 		# - Input data
-		self.filelists= filelists	
+		#self.filelists= filelists
+		self.filelists= []	
 		self.catalog_file= ''
 		self.nx= 0
 		self.ny= 0	
@@ -73,8 +75,11 @@ class DataProvider(object):
 		self.apply_weights= False
 		self.img_weights= []
 		self.normalize_inputs= True
-		self.normmin= 0.001
-		self.normmax= 10
+		self.minmax_scaler= None
+		self.normmin= 0
+		self.normmax= 1
+		#self.normmin= 0.001
+		#self.normmax= 10
 		self.nBadPixThr= 0.6
 		self.badPixReplaceVal= 0 #-999
 
@@ -87,6 +92,10 @@ class DataProvider(object):
 	#################################
 	##     SETTERS/GETTERS
 	#################################
+	def set_filelists(self,filelist):
+		""" Set filelists """
+		self.filelists= filelist
+
 	def set_catalog_filename(self,filename):
 		""" Set name of source catalog file """
 		self.catalog_file= filename	
@@ -145,11 +154,102 @@ class DataProvider(object):
 		""" Return source labels """
 		return self.input_data_labels
 
+	#################################
+	##     READ FEATURE DATA
+	#################################
+	def read_feature_data(self,filename,row_start=0,delimiter=' '):	
+		""" Read feature file and create dataset """
+		
+		# - Check input file
+		if not filename:
+			logger.error("Empty feature data filename given!")
+			return -1			
+
+		# - Read ascii table
+		try:
+			table= Utils.read_ascii_table(filename,row_start,delimiter)
+		except IOError:
+			errmsg= 'Cannot read file: ' + filename
+			logger.error(errmsg)
+			return -1
+
+		nsamples= len(table)
+		ncols= len(table.columns)
+		colnames= table.colnames
+		colnames_excluded= ['sname','id','subid','confirmed']
+		colnames_feat= [i for i in colnames if not any([e for e in colnames_excluded if e in i])]
+
+		# - Get subtable (only feature columns)
+		table_feat= table[colnames_feat]
+		ncols_feat= len(table.columns)
+
+		print(table_feat)
+		print(colnames_feat)
+
+		# - Fill source dictionary
+		rowIndex= 0
+		self.source_names= []
+
+		for data in table:
+			source_full_name= data['sname']
+			source_name= source_full_name.split('_fitcomp')[0]
+			componentId= source_full_name.split('_fitcomp')[1]
+			obj_id= data['id']
+			obj_subid= data['subid']
+			obj_confirmed= data['confirmed']
+			obj_name= '' # Missing
+			obj_info= {}
+			obj_info['id']= obj_id
+			obj_info['subid']= obj_subid
+			obj_info['confirmed']= obj_confirmed
+			obj_info['name']= obj_name
+			self.source_names.append(source_full_name)
+			self.input_data_labels[source_full_name]= obj_info
+
+		# - Fill numpy array with feature data
+		x= table_feat.as_array() # this returns a structured numpy array
+		self.input_data= x.view((x.dtype[0], len(x.dtype.names))) # convert to standard numpy array
+		self.input_data= self.input_data.astype('float32')
+
+		logger.info("Shape of input data")
+		print(np.shape(self.input_data))		
+
+		# - Normalize feature data
+		if self.normalize_inputs:
+			logger.info("Input data (BEFORE NORMALIZATION): min/max=%s/%s" % (str(np.min(self.input_data)),str(np.max(self.input_data))))
+			
+			if not self.minmax_scaler:
+				self.minmax_scaler= preprocessing.MinMaxScaler(feature_range=(self.normmin,self.normmax))
+				self.input_data= self.minmax_scaler.fit_transform(self.input_data) # store the scaler function for later usage
+
+			#self.input_data= (self.input_data - self.normmin)/(self.normmax-self.normmin)
+			logger.info("Input data (AFTER NORMALIZATION): min/max=%s/%s" % (str(np.min(self.input_data)),str(np.max(self.input_data))))
+			
+
+		return 0
+
+
 	#############################
 	##     READ INPUT DATA
 	#############################
-	def read_data(self):	
-		""" Read data (images & source catalog if given) """
+	def read_data(self,img_filelist='',catalog_filename='',):	
+		""" Read image & source data and create dataset """
+
+		#===========================
+		#==   SET INPUT FILENAMES
+		#===========================
+		if catalog_filename:
+			self.catalog_file= catalog_filename
+		if img_filelist:
+			self.filelists= img_filelist
+			
+		if not self.catalog_file:
+			logger.error("Empty catalog filename given or set!")
+			return -1
+		
+		if not self.filelists:
+			logger.error("Empty source image filename list given or set!")
+			return -1
 
 		#===========================
 		#==   READ SOURCE CATALOG
@@ -163,7 +263,7 @@ class DataProvider(object):
 		#==   READ IMAGE DATA
 		#===========================	
 		logger.info("Reading source image data ...")
-		status= self.__read_source_image_data()
+		status= self.__read_source_image_data(self.filelists)
 		if status<0:
 			logger.error("Failed to read source image data!")
 			return -1
@@ -174,15 +274,15 @@ class DataProvider(object):
 	#############################
 	##     READ INPUT IMAGES
 	#############################
-	def __read_source_image_data(self):	
+	def __read_source_image_data(self,filelists=''):	
 		""" Read data from disk """
 			
 		# - Check data filelists
-		if not self.filelists:
+		if not filelists:
 			logger.error("Empty filelists given!")
 			return -1
 
-		nfilelists= len(self.filelists)
+		nfilelists= len(filelists)
 		
 		# - Check weights size
 		if self.apply_weights and len(self.img_weights)!=nfilelists:
@@ -193,7 +293,7 @@ class DataProvider(object):
 		filelist_counter= 0
 		imgfilenames= []
 
-		for filelist in self.filelists:
+		for filelist in filelists:
 			filelist_counter+= 1
 			imgfilenames.append([])
 
@@ -375,6 +475,7 @@ class DataProvider(object):
 		self.input_data= self.input_data.astype('float32')
 
 		logger.info("Shape of input data")
+		nsamples= self.input_data.shape[0]
 		print(np.shape(self.input_data))
 
 		# - Normalize to [0,1]
@@ -382,7 +483,17 @@ class DataProvider(object):
 			logger.info("Input data (BEFORE NORMALIZATION): min/max=%s/%s" % (str(np.min(self.input_data)),str(np.max(self.input_data))))
 			self.input_data= (self.input_data - self.normmin)/(self.normmax-self.normmin)
 			logger.info("Input data (AFTER NORMALIZATION): min/max=%s/%s" % (str(np.min(self.input_data)),str(np.max(self.input_data))))
-				
+			
+		# - Flatten input data to 2D (Nsamples x (nx*ny*nchan))
+		#self.input_data= self.input_data.reshape(nsamples,-1)
+
+		# - Normalize to range
+		#if self.normalize_inputs:
+		#	logger.info("Input data (BEFORE NORMALIZATION): min/max=%s/%s" % (str(np.min(self.input_data)),str(np.max(self.input_data))))
+		#	if not self.minmax_scaler:
+		#		self.minmax_scaler= preprocessing.MinMaxScaler(feature_range=(self.normmin,self.normmax))
+		#		self.input_data= self.minmax_scaler.fit_transform(self.input_data) # store the scaler function for later usage
+		#	logger.info("Input data (AFTER NORMALIZATION): min/max=%s/%s" % (str(np.min(self.input_data)),str(np.max(self.input_data))))
 				
 		return 0
 
@@ -410,10 +521,12 @@ class DataProvider(object):
 			source_full_name= str(source_name) + '_fitcomp' + str(componentId)
 			obj_id= data['col57']
 			obj_subid= data['col58']
-			obj_name= data['col60']
+			obj_confirmed= data['col59']
+			obj_name= data['col61']
 			obj_info= {}
 			obj_info['id']= obj_id
 			obj_info['subid']= obj_subid
+			obj_info['confirmed']= obj_confirmed
 			obj_info['name']= obj_name
 			
 			self.input_data_labels[source_full_name]= obj_info
@@ -422,6 +535,8 @@ class DataProvider(object):
 		print(self.input_data_labels)
 
 		return 0
+
+	
 
 	#################################
 	##     COMPUTE SSIM IMAGES

@@ -22,6 +22,9 @@ import logging
 ## UMAP MODULES
 import umap
 
+## SCIKIT LEARN
+from sklearn.datasets import load_digits
+
 ## GRAPHICS MODULES
 import matplotlib.pyplot as plt
 
@@ -52,6 +55,7 @@ class UMAPClassifier(object):
 		# - Input data
 		self.dp= data_provider
 		self.nsamples= 0
+		self.nfeatures= 0
 		self.nx= 0
 		self.ny= 0
 		self.nchannels= 1	
@@ -132,8 +136,15 @@ class UMAPClassifier(object):
 		""" Set encoded data dim """
 		self.encoded_data_dim= dim
 
-	
+	def set_n_neighbors(self,n):
+		""" Set neighbor number parameter """
+		self.n_neighbors= n
 
+	def set_min_dist(self,d):
+		""" Set min distance parameter"""
+		self.min_dist= d
+
+	
 	#####################################
 	##     SET TRAIN DATA
 	#####################################
@@ -142,24 +153,28 @@ class UMAPClassifier(object):
 
 		# - Retrieve input data info from provider
 		self.data= self.dp.get_data()
-		imgshape= self.data.shape
+		data_shape= self.data.shape
 
 		self.data_labels= self.dp.get_data_labels()
 		self.source_names= self.dp.get_source_names()
 			
 		# - Check if data provider has data filled
-		if self.data.ndim!=4:
-			logger.error("Invalid number of dimensions in train data (4 expected) (hint: check if data was read in provider!)")
+		if self.data.ndim<2:
+			logger.error("Invalid number of dimensions in train data (dim>=2 expected) (hint: check if data was read in provider!)")
 			return -1
+		
+		self.nsamples= data_shape[0]
+		self.nfeatures= data_shape[1]
+	
+		# - Flatten input data to 2D (Nsamples x (nx*ny*nchan)) if not done in provider class
+		if self.data.ndim==4:
+			logger.info("4-dim input data given, flattening them...")
+			self.nx= data_shape[2]
+			self.ny= data_shape[1]
+			self.nchannels= data_shape[3] 
+			self.data= self.data.reshape(self.nsamples,-1)	
+			self.nfeatures= data_shape[1]
 
-		# - Set data
-		self.nsamples= imgshape[0]
-		self.nx= imgshape[2]
-		self.ny= imgshape[1]
-		self.nchannels= imgshape[3] 
-
-		# - Flatten input data to 2D (Nsamples x (nx*ny*nchan))
-		self.data= self.data.reshape(self.nsamples,-1)
 
 		# - Set preclassified data
 		logger.info("DEBUG: source_names size=%d, nsamples=%d" % (len(self.source_names),self.nsamples))
@@ -187,7 +202,8 @@ class UMAPClassifier(object):
 				self.data_preclassified_labels= np.array(label_list)
 
 		logger.info("Input data size (N,nx,ny,nchan)=(%d,%d,%d,%d)" % (self.nsamples,self.nx,self.ny,self.nchannels))
-		print("DEBUG: Reshaped data size=",self.data.shape)
+		print("Reshaped data size")
+		print(self.data.shape)
 		if self.data_preclassified is not None:
 			print("DEBUG: Pre-classified data size=",self.data_preclassified.shape)
 			print("DEBUG: Pre-classified data labels size=",self.data_preclassified_labels.shape)
@@ -228,6 +244,14 @@ class UMAPClassifier(object):
 			verbose=False
 		)
 
+		#self.reducer= umap.UMAP(
+		#	random_state=self.random_seed,
+		#	#n_components=self.encoded_data_dim,
+		#	#n_neighbors=self.n_neighbors,
+		#	#min_dist=self.min_dist, 
+		#	verbose=True
+		#)
+
 		#==========================================================
 		#==   FIT PRE-CLASSIFIED DATA (IF AVAILABLE) SUPERVISED
 		#==========================================================
@@ -235,6 +259,7 @@ class UMAPClassifier(object):
 			logger.info("Fitting input pre-classified data in a supervised way ...")
 			self.learned_transf= self.reducer.fit(self.data_preclassified,self.data_preclassified_labels)
 			self.encoded_data_preclassified= self.learned_transf.transform(self.data_preclassified)
+
 
 		#================================
 		#==   FIT DATA UNSUPERVISED
@@ -395,4 +420,6 @@ class UMAPClassifier(object):
 		if status<0:
 			logger.error("Reducer training failed!")
 			return -1
+
+		return 0
 
