@@ -75,6 +75,8 @@ def get_args():
 	parser.add_argument('-mergeThr', '--mergeThr', dest='mergeThr', required=False, type=float, default=2.5, action='store',help='Merge significance threshold used to create source mask (default=2.5)')	
 	parser.add_argument('-sourceMaxDistFromCenter', '--sourceMaxDistFromCenter', dest='sourceMaxDistFromCenter', required=False, type=float, default=5, action='store',help='Maximum distance in pixels of detected soure from center to be considered in the mask (default=5)')	
 	parser.add_argument('-outerLayerSize', '--outerLayerSize', dest='outerLayerSize', required=False, type=float, default=21, action='store',help='Outer layer size in pixels used to create the outer mask (default=21)')	
+	parser.add_argument('-ssimWindowSize', '--ssimWindowSize', dest='ssimWindowSize', required=False, type=int, default=9, action='store',help='Window size in pixels used for ssim index computation (default=9)')	
+	
 	
 
 	# - Output options
@@ -125,6 +127,7 @@ def main():
 	mergeThr= args.mergeThr
 	sourceMaxDistFromCenter= args.sourceMaxDistFromCenter
 	outerLayerSize= args.outerLayerSize
+	ssim_window_size= args.ssimWindowSize
 
 	# - Output file
 	# ...	
@@ -140,9 +143,11 @@ def main():
 	#==   READ DATA
 	#===========================
 	# - Create data provider
-	dp= DataProvider(filelists=filelists)
+	#dp= DataProvider(filelists=filelists)
+	dp= DataProvider()
 
 	# - Set options
+	dp.set_filelists(filelists)
 	dp.set_catalog_filename(catalog_file)
 	dp.enable_inputs_normalization(normalize_img)
 	dp.set_input_data_norm_range(normdatamin,normdatamax)
@@ -168,6 +173,7 @@ def main():
 	fextractor.set_merge_thr(mergeThr)
 	fextractor.set_max_source_dist_from_center(sourceMaxDistFromCenter)
 	fextractor.set_outer_layer_size(outerLayerSize)
+	fextractor.set_ssim_window_size(ssim_window_size)
 
 	logger.info("Computing similarity data ...")
 	status= fextractor.compute_similarity_data()

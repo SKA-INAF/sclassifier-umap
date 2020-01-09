@@ -47,8 +47,10 @@ def get_args():
 	parser = argparse.ArgumentParser(description="Parse args.")
 
 	# - Input options
-	parser.add_argument('-filelists','--filelists', dest='filelists', required=True, nargs='+', type=str, default=[], help='List of image filelists') 
+	parser.add_argument('-filelists','--filelists', dest='filelists', required=True, nargs='+', type=str, default=[], help='List of image filelists or feature files') 
 	parser.add_argument('-catalog_file','--catalog_file', dest='catalog_file', required=False, type=str, default='', help='Caesar source catalog ascii file') 
+	parser.add_argument('--isfeaturedata', dest='isfeaturedata', action='store_true',help='Regard filelists as feature files (default=false)')	
+	parser.set_defaults(isfeaturedata=False)	
 
 	# - Data process options
 	parser.add_argument('--crop_img', dest='crop_img', action='store_true',help='Crop input images')	
@@ -66,12 +68,17 @@ def get_args():
 	parser.add_argument('--normalize_img_to_chanmax', dest='normalize_img_to_chanmax', action='store_true',help='Normalize input images to channel maximum')	
 	parser.set_defaults(normalize_img_to_chanmax=False)
 
+	parser.add_argument('--apply_logtransform', dest='apply_logtransform', action='store_true',help='Apply log transform to feature data')	
+	parser.set_defaults(apply_logtransform=False)
+
 	parser.add_argument('--apply_weights', dest='apply_weights', action='store_true',help='Apply weights to input image channels')	
 	parser.set_defaults(apply_weights=False)	
 	parser.add_argument('-img_weights','--img_weights', dest='img_weights', required=False, nargs='+', type=float, default=[], help='List of image weights (must have same size of input filelists)') 
 
 	# - Classifier options
 	parser.add_argument('-ndim', '--ndim', dest='ndim', required=False, type=int, default=2, action='store',help='Encoded data dim (default=2)')
+	parser.add_argument('-mindist', '--mindist', dest='mindist', required=False, type=float, default=0.1, action='store',help='Min dist UMAP par (default=0.1)')
+	parser.add_argument('-nneighbors', '--nneighbors', dest='nneighbors', required=False, type=int, default=15, action='store',help='N neighbors UMAP par (default=15)')
 	
 	
 	# - Output options
@@ -105,6 +112,7 @@ def main():
 	# - Input filelist
 	filelists= args.filelists
 	catalog_file= args.catalog_file
+	isfeaturedata= args.isfeaturedata
 	print(filelists)
 
 	# - Data process options	
@@ -115,12 +123,15 @@ def main():
 	normdatamin= args.normdatamin
 	normdatamax= args.normdatamax
 	normalize_img_to_first_chan= args.normalize_img_to_first_chan
-	normalize_img_to_chanmax= args.normalize_img_to_chanmax
+	normalize_img_to_chanmax= args.normalize_img_to_chanmax	
+	apply_logtransform= args.apply_logtransform
 	apply_weights= args.apply_weights
 	img_weights= args.img_weights
 
 	# - Classifier options
 	ndim= args.ndim
+	mindist= args.mindist
+	nneighbors= args.nneighbors
 	
 	# - Output file
 	outfile_unsupervised= args.outfile_unsupervised
@@ -139,26 +150,37 @@ def main():
 	#==   READ DATA
 	#===========================
 	# - Create data provider
-	dp= DataProvider(filelists=filelists)
+	#dp= DataProvider(filelists=filelists)
+	dp= DataProvider()
 
 	# - Set options
-	dp.set_catalog_filename(catalog_file)
+	#dp.set_filelists(filelists)
+	#dp.set_catalog_filename(catalog_file)
 	dp.enable_inputs_normalization(normalize_img)
 	dp.set_input_data_norm_range(normdatamin,normdatamax)
 	dp.enable_inputs_normalization_to_first_channel(normalize_img_to_first_chan)
 	dp.enable_inputs_normalization_to_chanmax(normalize_img_to_chanmax)
+	dp.apply_log_transform(apply_logtransform)
 	dp.enable_img_crop(crop_img)
 	dp.set_img_crop_size(nx,ny)
 	dp.enable_img_weights(apply_weights)
 	dp.set_img_weights(img_weights)
 
 
-	# - Read data	
-	logger.info("Running data provider to read image data ...")
-	status= dp.read_data()
-	if status<0:
-		logger.error("Failed to read input image data!")
-		return 1
+	# - Read feature data
+	if isfeaturedata:
+		logger.info("Running data provider to read feature data ...")
+		status= dp.read_feature_data(filelists[0])
+		if status<0:
+			logger.error("Failed to read input image data!")
+			return 1
+	
+	else:
+		logger.info("Running data provider to read image data ...")
+		status= dp.read_data(filelists,catalog_file)
+		if status<0:
+			logger.error("Failed to read input image data!")
+			return 1
 	
 
 	#===========================
@@ -171,7 +193,9 @@ def main():
 	classifier.set_encoded_data_supervised_outfile(outfile_supervised)
 	classifier.set_encoded_data_preclassified_outfile(outfile_preclassified)
 	classifier.set_encoded_data_dim(ndim)
-	
+	classifier.set_min_dist(mindist)
+	classifier.set_n_neighbors(nneighbors)
+
 	status= classifier.train()
 	if status<0:
 		logger.error("UMAP training failed!")
