@@ -75,6 +75,8 @@ class DataProvider(object):
 		self.apply_weights= False
 		self.img_weights= []
 		self.normalize_inputs= True
+		self.logtransform_data= False	
+		self.logtransform_eps= 0.0001
 		self.minmax_scaler= None
 		self.normmin= 0
 		self.normmax= 1
@@ -116,6 +118,10 @@ class DataProvider(object):
 		""" Set input data normalization range """
 		self.normmin= datamin
 		self.normmax= datamax
+
+	def apply_log_transform(self,choice):
+		""" Turn on/off log-tranform of input data features """
+		self.logtransform_data= choice
 
 	def get_img_size(self):
 		""" Return the train image size """
@@ -214,17 +220,35 @@ class DataProvider(object):
 		logger.info("Shape of input data")
 		print(np.shape(self.input_data))		
 
+		# - Log transform input data
+		if self.logtransform_data:
+			logger.info("Log transform the input data ...")
+
+			x= self.input_data - np.min(self.input_data,axis=0) + self.logtransform_eps
+			logger.info("Input data (BEFORE LOG-TRANSFORM): min/max=%s/%s, abs(min)=%s" % (str(np.min(x)),str(np.max(x)),str(abs(self.input_data.min())) ))
+			
+			logdata= np.log1p(x)
+			self.input_data= logdata
+			logger.info("Input data (AFTER LOG-TRANSFORM): min/max=%s/%s" % (str(np.min(self.input_data)),str(np.max(self.input_data))))
+			
+
 		# - Normalize feature data
 		if self.normalize_inputs:
-			logger.info("Input data (BEFORE NORMALIZATION): min/max=%s/%s" % (str(np.min(self.input_data)),str(np.max(self.input_data))))
+			#logger.info("Input data (BEFORE NORMALIZATION): min/max=%s/%s" % (str(np.min(self.input_data)),str(np.max(self.input_data))))
+			logger.info("Input data range (BEFORE MIN/MAX NORMALIZATION)")
+			print(np.min(self.input_data,axis=0))
+			print(np.max(self.input_data,axis=0))
 			
 			if not self.minmax_scaler:
 				self.minmax_scaler= preprocessing.MinMaxScaler(feature_range=(self.normmin,self.normmax))
 				self.input_data= self.minmax_scaler.fit_transform(self.input_data) # store the scaler function for later usage
 
 			#self.input_data= (self.input_data - self.normmin)/(self.normmax-self.normmin)
-			logger.info("Input data (AFTER NORMALIZATION): min/max=%s/%s" % (str(np.min(self.input_data)),str(np.max(self.input_data))))
-			
+			#logger.info("Input data (AFTER NORMALIZATION): min/max=%s/%s" % (str(np.min(self.input_data)),str(np.max(self.input_data))))
+			logger.info("Input data range (AFTER MIN/MAX NORMALIZATION)")
+			print(np.min(self.input_data,axis=0))
+			print(np.max(self.input_data,axis=0))
+
 
 		return 0
 

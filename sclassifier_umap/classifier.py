@@ -280,8 +280,8 @@ class UMAPClassifier(object):
 		# - Unsupervised encoded data
 		logger.info("Saving encoded data to file ...")
 		N= self.encoded_data_unsupervised.shape[0]
-		print("Encoded data shape=",self.encoded_data_unsupervised)
-		print("Encoded data N=",N)
+		print("Unsupervised encoded data shape=",self.encoded_data_unsupervised.shape)
+		print("Unsupervised encoded data N=",N)
 
 		obj_ids= []
 		obj_subids= []
@@ -323,8 +323,8 @@ class UMAPClassifier(object):
 		if self.encoded_data_supervised is not None:
 			logger.info("Saving supervised encoded data to file ...")
 			N= self.encoded_data_supervised.shape[0]
-			print("Encoded data shape=",self.encoded_data_supervised)
-			print("Encoded data N=",N)
+			print("Supervised encoded data shape=",self.encoded_data_supervised.shape)
+			print("Supervised encoded data N=",N)
 
 			obj_ids= []
 			obj_subids= []
@@ -360,8 +360,8 @@ class UMAPClassifier(object):
 		if self.encoded_data_preclassified is not None:
 			logger.info("Saving pre-classified encoded data to file ...")
 			N= self.encoded_data_preclassified.shape[0]
-			print("Encoded data shape=",self.encoded_data_preclassified)
-			print("Encoded data N=",N)
+			print("Pre-classified encoded data shape=",self.encoded_data_preclassified.shape)
+			print("Pre-classified encoded data N=",N)
 
 			obj_ids= []
 			obj_subids= []
